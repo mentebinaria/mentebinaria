@@ -1,0 +1,14 @@
+<VirtualHost *:80>
+
+	DocumentRoot /var/www/mentebinaria
+
+	<Directory />
+	   Order deny,allow
+	   Allow from all
+	</Directory>
+
+	LogLevel error
+	CustomLog ${APACHE_LOG_DIR}/mentebinaria80_access.log combined
+	ErrorLog ${APACHE_LOG_DIR}/mentebinaria80_error.log
+
+</VirtualHost>
