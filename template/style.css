@@ -30,9 +30,11 @@ a:hover {
 	font-family: Courier, "Courier New", monospace;
 	background-color: #00cc66;
 	color: black;
-	border-radius: 5px;
+	-webkit-border-radius: 5px;
 	moz-border-radius: 5px;
-	padding: 2px 2px 2px 2px;
+	-o-border-radius: 5px;
+	border-radius: 5px;
+	padding: 2px;
 }
 
 .special {
@@ -53,11 +55,14 @@ body {
 }
 
 #box {
-	border-radius: 8px;
+	-webkit-border-radius: 8px;
 	moz-border-radius: 8px;
+	-o-border-radius: 8px;
+	border-radius: 8px;
 	border: 1px dotted #00cc66;
-	box-shadow: -1px -1px 1px gray, 1px 1px 1px #00cc66;
 	moz-box-shadow: -1px -1px 1px gray, 1px 1px 1px #00cc66;
+	-webkit-box-shadow: -1px -1px 1px gray, 1px 1px 1px #00cc66;
+	box-shadow: -1px -1px 1px gray, 1px 1px 1px #00cc66;
 	width: 800px;
 	margin: auto;
 	padding: 0px 10px 10px 10px;
@@ -78,12 +83,18 @@ body {
 .date {
 	color: gray;
 	font-size: 10px;
-	margin: 0px;
+	margin: 0;
 }
 
-h3 { margin: 30px 0px 0px 0px; }
+h3 {
+	margin-top: 30px;
+	
+}
 
-header {	color: #00cc66; }
+header {
+	color: #00cc66; 
+	
+}
 
 #logo {
 	text-align: left;
@@ -97,7 +108,7 @@ header {	color: #00cc66; }
 
 #frase {
 	font-size: 12px;
-	margin: 0px 0px 0px 0px;
+	margin: 0;
 	text-align: center;
 }
 
