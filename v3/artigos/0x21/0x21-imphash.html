@@ -1,0 +1,267 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mente Binária - Entendendo o imphash</title>
+</head>
+<body style="font-family:monospace;">
+
+<article>
+<header>
+<h3>0x21 - Entendendo o imphash</h3>
+<h5><time pubdate datetime="2016-05-06">
+Escrito em 6/5/2016</time>
+por Fernando Mercês&nbsp;&lt;nandu88 *em* gmail.com&gt;
+<br />
+** Licenciado sob a <a
+href="http://creativecommons.org/licenses/by/3.0/br"
+target="_blank">Creative Commons 3.0</a> **</h5>
+</header>
+
+<p>
+No início de 2014 a Mandiant publicou que estava calculando o hash MD5 das funções importadas por binários PE para buscar variantes [1]. Eles também fizeram um patch na biblioteca pefile [2] para suportar o novo cálculo. A ideia colou e até o Virus Total passou a utilizar [3]. Eu mesmo utilizei um tempo sem entender direito até que um dia decidi estudá-lo para implementar no pev [4] (que ainda não fiz) e hoje decidi escrever sobre. :)
+</p>
+
+<p>
+Todo binário PE que se preze usa funções de bibliotecas. Assim sendo, desde os primórdios da especificação PE, há o que é conhecido por IAT - Import Address Table, que é uma tabela contendo uma lista de cada módulo (DLL) que o binário utiliza (importa) com suas respectivas funções. Por exemplo, vamos analisar o programa no estilo "Hello, world" abaixo:
+</p>
+
+<pre>
+#include &lt;stdio.h&gt;
+
+int main(void)
+{
+  puts("Quem avisa chato eh!");
+  return 0;
+}
+</pre>
+
+<p>
+Ao compilar usando o Dev-Cpp [5] no Windows 7, podemos checar quais funções são importadas por ele:
+</p>
+
+<pre>
+C:\> readpe --imports hello.exe
+
+Imported functions
+    Library
+        Name:                            KERNEL32.dll
+        Functions
+            Function
+                Name:                            DeleteCriticalSection
+            Function
+                Name:                            EnterCriticalSection
+            Function
+                Name:                            GetCurrentProcess
+            Function
+                Name:                            GetCurrentProcessId
+            Function
+                Name:                            GetCurrentThreadId
+            Function
+                Name:                            GetLastError
+            Function
+                Name:                            GetStartupInfoA
+            Function
+                Name:                            GetSystemTimeAsFileTime
+            Function
+                Name:                            GetTickCount
+            Function
+                Name:                            InitializeCriticalSection
+            Function
+                Name:                            LeaveCriticalSection
+            Function
+                Name:                            QueryPerformanceCounter
+            Function
+                Name:                            RtlAddFunctionTable
+            Function
+                Name:                            RtlCaptureContext
+            Function
+                Name:                            RtlLookupFunctionEntry
+            Function
+                Name:                            RtlVirtualUnwind
+            Function
+                Name:                            SetUnhandledExceptionFilter
+            Function
+                Name:                            Sleep
+            Function
+                Name:                            TerminateProcess
+            Function
+                Name:                            TlsGetValue
+            Function
+                Name:                            UnhandledExceptionFilter
+            Function
+                Name:                            VirtualProtect
+            Function
+                Name:                            VirtualQuery
+    Library
+        Name:                            msvcrt.dll
+        Functions
+            Function
+                Name:                            __C_specific_handler
+            Function
+                Name:                            __dllonexit
+            Function
+                Name:                            __getmainargs
+            Function
+                Name:                            __initenv
+            Function
+                Name:                            __iob_func
+            Function
+                Name:                            __lconv_init
+            Function
+                Name:                            __set_app_type
+            Function
+                Name:                            __setusermatherr
+            Function
+                Name:                            _acmdln
+            Function
+                Name:                            _amsg_exit
+            Function
+                Name:                            _cexit
+            Function
+                Name:                            _fmode
+            Function
+                Name:                            _initterm
+            Function
+                Name:                            _lock
+            Function
+                Name:                            _onexit
+            Function
+                Name:                            _unlock
+            Function
+                Name:                            abort
+            Function
+                Name:                            calloc
+            Function
+                Name:                            exit
+            Function
+                Name:                            fprintf
+            Function
+                Name:                            free
+            Function
+                Name:                            fwrite
+            Function
+                Name:                            malloc
+            Function
+                Name:                            memcpy
+            Function
+                Name:                            puts
+            Function
+                Name:                            signal
+            Function
+                Name:                            strlen
+            Function
+                Name:                            strncmp
+            Function
+                Name:                            vfprintf
+</pre>
+
+<p>
+Pois é, apesar de eu ter chamado apenas a função puts(), o binário precisa de muito mais para funcionar. :)
+</p>
+
+<p>
+Agora um segundo exemplo, com um recurso a mais, mas sem chamar nenhuma outra função da mesma biblioteca:
+</p>
+
+<pre>
+#include &lt;stdio.h&gt;
+
+char * superfuncaonova(int n)
+{
+  if (n >= 666)
+    return "arre, porra!";
+  else
+    return "eu quero eh rock, diabo!";
+}
+
+int main(void)
+{ 
+  puts("Quem avisa chato eh!");
+  puts(superfuncaonova(1));
+  
+  return 0;
+}
+</pre>
+
+<p>
+Após compilar e listar os imports deste hello2.exe, você vai confirmar que é exatamente a mesma lista do primeiro hello.exe. Isto porque, apesar de ter uma função interna nova, não utiliza outra função de biblioteca nova, o que não altera a IAT. Isso é comum em variantes de uma mesma família de malware já que as funcionalidades estão prontas e o que difere de uma variante para outra normalmente são informações como servidor de comando e controle, algumas strings, etc. Sendo assim, é inteligente utilizar essa lista para buscar famílias. Parabéns para quem pensou nisso. :)
+</p>
+
+<p>
+E como o imphash foi implementado?
+</p>
+
+<p>
+Comparar cada item da lista não seria prático então alguém teve a ideia de tirar o hash MD5 da lista, obedecendo o seguinte padrão:
+</p>
+
+<pre>
+Varrendo a import table (IT), na ordem em que aparecem os imports:
+
+1. Prefixar cada função com o nome do módulo sem extensão (mas mantendo o ponto) da qual ela é importada. Por exemplo, se o binário importa DeleteCriticalSection() da KERNEL32.DLL, esse import reescrito ficaria KERNEL32.EnterCriticalSection.
+2. Caso não haja nome da função, tentar resolver e, caso não consiga, utilizar seu número ordinal.
+3. Converter tudo para minúsculo.
+4. Criar uma string com os imports no padrão acima, separados por vírgula.
+</pre>
+
+<p>
+Eu salvei a saída do readpe para um arquivo de texto e, usando expressões regulares, o editei até que ficasse no padrão definido acima:
+</p>
+
+<p>
+$ cat hello.imports
+kernel32.deletecriticalsection,kernel32.entercriticalsection,kernel32.getcurrentprocess,kernel32.getcurrentprocessid,kernel32.getcurrentthreadid,
+kernel32.getlasterror,kernel32.getstartupinfoa,kernel32.getsystemtimeasfiletime,kernel32.gettickcount,kernel32.initializecriticalsection,
+kernel32.leavecriticalsection,kernel32.queryperformancecounter,kernel32.rtladdfunctiontable,kernel32.rtlcapturecontext,kernel32.rtllookupfunctionentry,
+kernel32.rtlvirtualunwind,kernel32.setunhandledexceptionfilter,kernel32.sleep,kernel32.terminateprocess,kernel32.tlsgetvalue,kernel32.unhandledexceptionfilter,
+kernel32.virtualprotect,kernel32.virtualquery,msvcrt.__c_specific_handler,msvcrt.__dllonexit,msvcrt.__getmainargs,msvcrt.__initenv,msvcrt.__iob_func,
+msvcrt.__lconv_init,msvcrt.__set_app_type,msvcrt.__setusermatherr,msvcrt._acmdln,msvcrt._amsg_exit,msvcrt._cexit,msvcrt._fmode,msvcrt._initterm,msvcrt._lock,
+msvcrt._onexit,msvcrt._unlock,msvcrt.abort,msvcrt.calloc,msvcrt.exit,msvcrt.fprintf,msvcrt.free,msvcrt.fwrite,msvcrt.malloc,msvcrt.memcpy,msvcrt.puts,
+msvcrt.signal,msvcrt.strlen,msvcrt.strncmp,msvcrt.vfprintf
+</p>
+
+<p>
+NOTA: O arquivo tem somente uma linha, sendo que não há um caractere de nova linha (\n ) no final dela, veja:
+<pre>
+$ hdump hello.imports | tail
+000003c0  74 2e 65 78 69 74 2c 6d  73 76 63 72 74 2e 66 70  |t.exit,msvcrt.fp|
+000003d0  72 69 6e 74 66 2c 6d 73  76 63 72 74 2e 66 72 65  |rintf,msvcrt.fre|
+000003e0  65 2c 6d 73 76 63 72 74  2e 66 77 72 69 74 65 2c  |e,msvcrt.fwrite,|
+000003f0  6d 73 76 63 72 74 2e 6d  61 6c 6c 6f 63 2c 6d 73  |msvcrt.malloc,ms|
+00000400  76 63 72 74 2e 6d 65 6d  63 70 79 2c 6d 73 76 63  |vcrt.memcpy,msvc|
+00000410  72 74 2e 70 75 74 73 2c  6d 73 76 63 72 74 2e 73  |rt.puts,msvcrt.s|
+00000420  69 67 6e 61 6c 2c 6d 73  76 63 72 74 2e 73 74 72  |ignal,msvcrt.str|
+00000430  6c 65 6e 2c 6d 73 76 63  72 74 2e 73 74 72 6e 63  |len,msvcrt.strnc|
+00000440  6d 70 2c 6d 73 76 63 72  74 2e 76 66 70 72 69 6e  |mp,msvcrt.vfprin|
+00000450  74 66                                             |tf|
+</pre>
+</p>
+
+<p>
+O imphash deste arquivo então deve ser o hash MD5 do conteúdo de hello.imports. Vamos ver?
+</p>
+
+<pre>
+$ python imphash.py hello.exe # usando a pefile
+3856e6eb1020e4f12c9b8f75c966a09c
+
+~ $ md5 hello.imports
+MD5 (hello.imports) = 3856e6eb1020e4f12c9b8f75c966a09c
+</pre>
+
+<p>
+Legal! Agora que sabemos como calcular o imphash de binários PE, podemos implementar em qualquer software, certo? Mais ou menos. Você percebeu que ignoramos o passo 2? Pois é, no próximo artigo vou explicar o motivo pelo qual o imphash está quebrado. Até lá. o/
+</p>
+
+<pre>
+[1] https://www.fireeye.com/blog/threat-research/2014/01/tracking-malware-import-hashing.html
+[2] https://github.com/erocarrera/pefile
+[3] http://blog.virustotal.com/2014/02/virustotal-imphash.html
+[4] http://pev.sf.net
+[5] https://sourceforge.net/projects/orwelldevcpp/
+</pre>
+
+</article>
+</body>
+</html>
